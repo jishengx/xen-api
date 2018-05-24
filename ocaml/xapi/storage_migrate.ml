@@ -229,20 +229,31 @@ let vdi_info x =
 
 module Local = Client(struct let rpc call = rpc ~srcstr:"smapiv2" ~dststr:"smapiv2" (local_url ()) call end)
 
-let tapdisk_of_attach_info attach_info =
-  let path = attach_info.params in
-  try
-    match Tapctl.of_device (Tapctl.create ()) path with
-    | tapdev, _, _ -> Some tapdev
-  with Tapctl.Not_blktap ->
-    debug "Device %s is not controlled by blktap" path;
+let tapdisk_of_attach_info (backend:Storage_interface.backend) =
+  let xendisks =
+    Xapi_stdext_std.Listext.List.filter_map
+      (function XenDisk xendisk -> Some xendisk | _ -> None)
+      backend.Storage_interface.implementations
+  in
+  match xendisks with
+  | xendisk :: _ -> begin
+      let path = xendisk.Storage_interface.params in
+      try
+        match Tapctl.of_device (Tapctl.create ()) path with
+        | tapdev, _, _ -> Some tapdev
+      with Tapctl.Not_blktap ->
+        debug "Device %s is not controlled by blktap" path;
+        None
+         | Tapctl.Not_a_device ->
+           debug "%s is not a device" path;
+           None
+         | _ ->
+           debug "Device %s has an unknown driver" path;
+           None
+    end
+  | [] ->
+    debug "No XenDisk implementation in backend: %s" (Storage_interface.rpc_of_backend backend |> Rpc.to_string);
     None
-     | Tapctl.Not_a_device ->
-       debug "%s is not a device" path;
-       None
-     | _ ->
-       debug "Device %s has an unknown driver" path;
-       None
 
 
 let with_activated_disk ~dbg ~sr ~vdi ~dp f =

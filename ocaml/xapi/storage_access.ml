@@ -421,9 +421,9 @@ module SMAPIv1 = struct
       | Api_errors.Server_error(code, params) ->
         raise (Backend_error(code, params))
 
-    let attach context ~dbg ~dp ~sr ~vdi ~read_write =
+    let attach2 context ~dbg ~dp ~sr ~vdi ~read_write =
       try
-        let attach_info =
+        let backend =
           for_vdi ~dbg ~sr ~vdi "VDI.attach"
             (fun device_config _type sr self ->
                let attach_info_v1 = Sm.vdi_attach device_config _type sr self read_write in
@@ -442,16 +442,28 @@ module SMAPIv1 = struct
                            ~value:(attach_info_v1.Smint.o_direct_reason)
                      )
                  );
-               { params = attach_info_v1.Smint.params;
-                 o_direct = attach_info_v1.Smint.o_direct;
-                 o_direct_reason = attach_info_v1.Smint.o_direct_reason;
-                 xenstore_data = attach_info_v1.Smint.xenstore_data; }
+               let backend_type =
+                 List.assoc_default "backend-kind" attach_info_v1.Smint.xenstore_data "vbd3"
+               in
+               {
+                 implementations = [
+                   XenDisk {
+                     params = attach_info_v1.Smint.params;
+                     backend_type;
+                     extra = []
+                   }
+                 ];
+                 domain_uuid = ""
+               }
             ) in
         Mutex.execute vdi_read_write_m
           (fun () -> Hashtbl.replace vdi_read_write (sr, vdi) read_write);
-        attach_info
+        backend
       with Api_errors.Server_error(code, params) ->
         raise (Backend_error(code, params))
+
+    let attach _ =
+      failwith "We'll never get here: attach is implemented in Storage_impl.Wrapper"
 
     let activate context ~dbg ~dp ~sr ~vdi =
       try
